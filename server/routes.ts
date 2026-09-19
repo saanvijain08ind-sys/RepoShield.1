@@ -740,6 +740,10 @@ apiRouter.post('/sentinel/create-fix-pr', async (req, res) => {
         success: false,
         error: result.error,
         errorCode: result.errorCode,
+        // { success, code, message } contract for precise UI diagnostics
+        // (e.g. 403 + "Missing repo scope on token").
+        code: result.code,
+        message: result.message,
         logs: result.logs,
       });
     }

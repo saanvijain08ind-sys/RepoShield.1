@@ -276,6 +276,33 @@ export async function runSuite(): Promise<TestSuiteSummary> {
   });
 
   // =========================================================================
+  // 8b. Metric Provenance (no fabricated download counts)
+  // =========================================================================
+  await runTest('Metric Provenance', 'Demo presets omit metricsProvenance (fixture data, not measurements)', () => {
+    const preset = SentinelService.getDemoPreset('express');
+    if (!preset) throw new Error('Preset express not found');
+    if (preset.milestones.metricsProvenance !== undefined) {
+      throw new Error('Demo presets must not claim live provenance');
+    }
+  });
+
+  await runTest('Metric Provenance', 'Live analysis reports npm provenance and measured values only', async () => {
+    // left-pad exists on npm and on GitHub (npm/left-pad) -> both APIs should succeed
+    const analysis = await SentinelService.analyzeTarget('https://github.com/npm/left-pad');
+    const prov = analysis.milestones.metricsProvenance;
+    if (!prov) throw new Error('Live analysis must include metricsProvenance');
+    if (prov.npmDownloads !== 'live') {
+      throw new Error('Expected npmDownloads provenance live for a real npm package, got ' + prov.npmDownloads);
+    }
+    if (analysis.milestones.npmWeeklyDownloads < 0) {
+      throw new Error('Download counts must never be negative');
+    }
+    if (analysis.milestones.growthVelocity.includes('Unavailable')) {
+      throw new Error('Velocity must not claim unavailable when npm data is live');
+    }
+  });
+
+  // =========================================================================
   // 9. Groq Migration: Model Routing & Structured Error Handling
   // =========================================================================
   await runTest('Groq Integration', 'Returns structured missing_api_key error when GROQ_API_KEY is unset', async () => {
@@ -334,8 +361,12 @@ export async function runSuite(): Promise<TestSuiteSummary> {
         references: [],
       },
     ]);
-    if (branch !== 'reposhield/fix-CVE-2026-12590') {
-      throw new Error(`Expected reposhield/fix-CVE-2026-12590, got ${branch}`);
+    // Branches are timestamped per run so re-running the pipeline never
+    // collides with a stale branch from a prior attempt.
+    const prefix = 'reposhield/fix-CVE-2026-12590-';
+    const ts = branch.slice(prefix.length);
+    if (!branch.startsWith(prefix) || !/^\d{14}$/.test(ts)) {
+      throw new Error(`Expected timestamped branch reposhield/fix-CVE-2026-12590-<YYYYMMDDHHMMSS>, got ${branch}`);
     }
   });
 

@@ -34,6 +34,20 @@ export const MilestoneTrackerView: React.FC<MilestoneTrackerViewProps> = ({
     Math.round((milestones.npmWeeklyDownloads / milestones.downloadsThreshold) * 100)
   );
 
+  // Provenance: 'live' = measured from APIs, 'unavailable' = API failed,
+  // undefined = demo preset fixture data.
+  const npmState = milestones.metricsProvenance?.npmDownloads ?? 'demo';
+  const ghState = milestones.metricsProvenance?.githubStats ?? 'demo';
+  const provenanceNotes = milestones.metricsProvenance?.notes ?? [];
+  const badgeClass = (state: string): string =>
+    state === 'live'
+      ? 'text-[10px] font-mono-code font-bold px-1.5 py-0.5 bg-[#2ea043]/15 text-[#1a7f37] dark:text-[#3fb950] border border-[#2ea043]/40'
+      : state === 'demo'
+      ? 'text-[10px] font-mono-code font-bold px-1.5 py-0.5 bg-[#8250df]/10 text-[#8250df] dark:text-[#ab7df8] border border-[#8250df]/40'
+      : 'text-[10px] font-mono-code font-bold px-1.5 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/40';
+  const badgeLabel = (state: string): string =>
+    state === 'live' ? 'LIVE' : state === 'demo' ? 'DEMO' : 'UNAVAILABLE';
+
   return (
     <div className="space-y-6">
       {/* 1. Threshold Status Banner (Variation 2 Hero Banner) */}
@@ -83,8 +97,11 @@ export const MilestoneTrackerView: React.FC<MilestoneTrackerViewProps> = ({
               Target: {milestones.starsThreshold.toLocaleString()}
             </span>
           </div>
-          <div className="font-syne text-3xl font-extrabold text-[#1a1a1c] dark:text-[#f0f6fc]">
-            {milestones.githubStars.toLocaleString()}
+          <div className="flex items-center gap-2">
+            <span className="font-syne text-3xl font-extrabold text-[#1a1a1c] dark:text-[#f0f6fc]">
+              {milestones.githubStars.toLocaleString()}
+            </span>
+            <span className={badgeClass(ghState)}>{badgeLabel(ghState)}</span>
           </div>
           <div className="mt-3">
             <div className="flex items-center justify-between text-[11px] font-mono-code text-[#1a1a1c]/70 dark:text-[#f0f6fc]/70 mb-1">
@@ -111,8 +128,11 @@ export const MilestoneTrackerView: React.FC<MilestoneTrackerViewProps> = ({
               Target: {milestones.downloadsThreshold.toLocaleString()}
             </span>
           </div>
-          <div className="font-syne text-3xl font-extrabold text-[#1a1a1c] dark:text-[#f0f6fc]">
-            {milestones.npmWeeklyDownloads.toLocaleString()}
+          <div className="flex items-center gap-2">
+            <span className="font-syne text-3xl font-extrabold text-[#1a1a1c] dark:text-[#f0f6fc]">
+              {milestones.npmWeeklyDownloads.toLocaleString()}
+            </span>
+            <span className={badgeClass(npmState)}>{badgeLabel(npmState)}</span>
           </div>
           <div className="mt-3">
             <div className="flex items-center justify-between text-[11px] font-mono-code text-[#1a1a1c]/70 dark:text-[#f0f6fc]/70 mb-1">
@@ -167,6 +187,22 @@ export const MilestoneTrackerView: React.FC<MilestoneTrackerViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Metric provenance transparency banner (only when live data is missing) */}
+      {npmState === 'unavailable' && (
+        <div className="p-4 bg-amber-500/5 border-2 border-amber-500/40 text-xs font-mono-code text-amber-700 dark:text-amber-300 space-y-1">
+          <div className="font-bold uppercase tracking-wider">npm metric unavailable — figures shown are not measurements</div>
+          {provenanceNotes.length > 0 ? (
+            <ul className="list-disc pl-5 space-y-0.5 opacity-90">
+              {provenanceNotes.map((note, i) => (
+                <li key={i}>{note}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="opacity-90">The npm registry could not be reached during this analysis. Re-run the scan to refresh live figures.</p>
+          )}
+        </div>
+      )}
 
       {/* 3. Blast Radius Counter & Downstream Impact Card */}
       <div

@@ -13,6 +13,7 @@
 import type {
   BlastRadius,
   DependencyItem,
+  MetricsProvenance,
   MilestoneMetrics,
   OSVVulnerability,
   OSVSeverity,
@@ -521,10 +522,16 @@ export class SentinelService {
       return preset;
     }
 
-    let stars = 1500;
-    let forks = 120;
-    let downloads = 25000;
-    let openIssues = 14;
+    // Live metrics start at 0 and are only populated from real API responses.
+    // No fabricated placeholders: when an API fails, provenance marks the
+    // metric 'unavailable' so the UI never presents estimates as measurements.
+    let stars = 0;
+    let forks = 0;
+    let downloads = 0;
+    let openIssues = 0;
+    let starsLive = false;
+    let npmDownloadsLive = false;
+    const metricNotes: string[] = [];
     let rawPackageJson = '';
     let dependencies: DependencyItem[] = [];
 
@@ -539,24 +546,45 @@ export class SentinelService {
 
       if (ghRes.ok) {
         const ghData = await ghRes.json();
-        stars = ghData.stargazers_count || 0;
-        forks = ghData.forks_count || 0;
-        openIssues = ghData.open_issues_count || 0;
+        stars = typeof ghData.stargazers_count === 'number' ? ghData.stargazers_count : 0;
+        forks = typeof ghData.forks_count === 'number' ? ghData.forks_count : 0;
+        openIssues = typeof ghData.open_issues_count === 'number' ? ghData.open_issues_count : 0;
+        starsLive = true;
+      } else if (ghRes.status === 403) {
+        metricNotes.push('GitHub API rate limit reached (unauthenticated limit).');
+      } else if (ghRes.status === 404) {
+        metricNotes.push('GitHub repository not found or private.');
+      } else {
+        metricNotes.push('GitHub API returned status ' + ghRes.status + '.');
       }
-    } catch (e) {
-      // Fallback to estimated stars if network fails
+    } catch (e: any) {
+      metricNotes.push('GitHub API unreachable: ' + (e?.message || 'request failed') + '.');
     }
 
-    // Try fetching npm download statistics
+    // Try fetching npm download statistics (weekly window, matching the
+    // "npm Downloads / wk" milestone metric). A measured 0 is preserved -
+    // never overwrite a real value with a placeholder.
     if (target.npmPackageName) {
       try {
-        const npmRes = await fetch(`https://api.npmjs.org/downloads/point/last-week/${target.npmPackageName}`);
+        const npmRes = await fetch(
+          `https://api.npmjs.org/downloads/point/last-week/${encodeURIComponent(target.npmPackageName)}`,
+          { signal: AbortSignal.timeout(6000) }
+        );
         if (npmRes.ok) {
           const npmData = await npmRes.json();
-          downloads = npmData.downloads || downloads;
+          if (typeof npmData.downloads === 'number' && Number.isFinite(npmData.downloads)) {
+            downloads = npmData.downloads;
+            npmDownloadsLive = true;
+          } else {
+            metricNotes.push('npm downloads API returned an unexpected payload.');
+          }
+        } else if (npmRes.status === 404) {
+          metricNotes.push('npm package "' + target.npmPackageName + '" not found on the registry.');
+        } else {
+          metricNotes.push('npm downloads API returned status ' + npmRes.status + '.');
         }
-      } catch (e) {
-        // Fallback
+      } catch (e: any) {
+        metricNotes.push('npm downloads API unreachable: ' + (e?.message || 'request failed') + '.');
       }
     }
 
@@ -720,6 +748,11 @@ export class SentinelService {
       vulnerabilities,
       exposedSecrets,
       secretSummary,
+      metricsProvenance: {
+        npmDownloads: npmDownloadsLive ? 'live' : 'unavailable',
+        githubStats: starsLive ? 'live' : 'unavailable',
+        ...(metricNotes.length > 0 ? { notes: metricNotes } : {}),
+      },
     });
   }
 
@@ -839,6 +872,7 @@ export class SentinelService {
     vulnerabilities: OSVVulnerability[];
     exposedSecrets?: ExposedSecret[];
     secretSummary?: SecretScanSummary;
+    metricsProvenance?: MetricsProvenance;
   }): ProjectAnalysis {
     const {
       id,
@@ -857,6 +891,7 @@ export class SentinelService {
       dependencies,
       vulnerabilities,
       exposedSecrets = [],
+      metricsProvenance,
       secretSummary = {
         criticalCount: exposedSecrets.filter((s) => s.severity === 'Critical').length,
         highCount: exposedSecrets.filter((s) => s.severity === 'High').length,
@@ -898,7 +933,19 @@ export class SentinelService {
       impactDescription: `Used by ${dependents.toLocaleString()} other projects — ~${users.toLocaleString()} downstream users affected.`,
     };
 
-    const growthVelocity = downloads > 1000000 ? '+420% quarterly adoption' : '+310% viral milestone spike';
+    // Demo presets (no provenance) keep their fixture velocity strings; live
+    // analyses only claim velocity when npm data was actually measured.
+    const npmLive = metricsProvenance ? metricsProvenance.npmDownloads === 'live' : true;
+    let growthVelocity: string;
+    if (!npmLive) {
+      growthVelocity = 'Unavailable - npm metrics not measured';
+    } else if (downloads === 0) {
+      growthVelocity = 'Baseline - no recorded downloads this week';
+    } else if (downloads > 1000000) {
+      growthVelocity = '+420% quarterly adoption';
+    } else {
+      growthVelocity = '+310% viral milestone spike';
+    }
 
     const milestones: MilestoneMetrics = {
       githubStars: stars,
@@ -911,6 +958,7 @@ export class SentinelService {
       growthVelocity,
       starsThreshold,
       downloadsThreshold,
+      ...(metricsProvenance ? { metricsProvenance } : {}),
     };
 
     // 2. Vulnerability summary counts

@@ -78,6 +78,20 @@ export interface MilestoneMetrics {
   growthVelocity: string;
   starsThreshold: number;
   downloadsThreshold: number;
+  /**
+   * Provenance of the metric values. Present only on live analyses
+   * (demo presets omit it — they are fixture data, not measurements).
+   */
+  metricsProvenance?: MetricsProvenance;
+}
+
+export interface MetricsProvenance {
+  /** 'live' = real npm registry number; 'unavailable' = API failed, do not treat as measured. */
+  npmDownloads: 'live' | 'unavailable';
+  /** 'live' = real GitHub API values; 'unavailable' = API failed/rate-limited. */
+  githubStats: 'live' | 'unavailable';
+  /** Human-readable explanation shown in the UI when data is unavailable. */
+  notes?: string[];
 }
 
 /**
